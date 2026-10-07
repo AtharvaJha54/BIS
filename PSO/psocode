@@ -1,0 +1,380 @@
+import random
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from IPython.display import HTML, display
+
+servers = {
+    "Server 1": 20,
+    "Server 2": 60,
+    "Server 3": 35,
+    "Server 4": 45
+}
+
+workloads = [10, 15, 20, 10, 25, 15, 20, 10]
+
+num_servers = 4
+num_particles = 20
+num_iterations = 40
+
+server_names = list(servers.keys())
+initial_loads = np.array(list(servers.values()), dtype=float)
+
+
+def calculate_fitness(position):
+
+    loads = initial_loads.copy()
+
+    for i in range(len(workloads)):
+        loads[position[i]] += workloads[i]
+
+    average = np.mean(loads)
+
+    variance = np.mean(
+        (loads - average) ** 2
+    )
+
+    overload = np.sum(
+        np.maximum(0, loads - 80) ** 2
+    )
+
+    load_difference = (
+        np.max(loads) - np.min(loads)
+    )
+
+    fitness = (
+        0.5 * variance
+        + 0.3 * overload
+        + 0.2 * load_difference
+    )
+
+    return fitness
+
+
+particles = []
+
+velocities = []
+
+personal_best = []
+
+personal_best_fitness = []
+
+
+for _ in range(num_particles):
+
+    position = [
+        random.randint(0, num_servers - 1)
+        for _ in workloads
+    ]
+
+    velocity = [
+        random.uniform(-1, 1)
+        for _ in workloads
+    ]
+
+    particles.append(position)
+    velocities.append(velocity)
+
+    personal_best.append(position.copy())
+
+    personal_best_fitness.append(
+        calculate_fitness(position)
+    )
+
+
+best_index = np.argmin(
+    personal_best_fitness
+)
+
+global_best = personal_best[
+    best_index
+].copy()
+
+global_best_fitness = personal_best_fitness[
+    best_index
+]
+
+
+fitness_history = []
+
+load_history = []
+
+assignment_history = []
+
+
+def run_pso_iteration():
+
+    global global_best
+    global global_best_fitness
+
+    for p in range(num_particles):
+
+        current_fitness = calculate_fitness(
+            particles[p]
+        )
+
+        if current_fitness < personal_best_fitness[p]:
+
+            personal_best_fitness[p] = current_fitness
+
+            personal_best[p] = particles[p].copy()
+
+        if current_fitness < global_best_fitness:
+
+            global_best_fitness = current_fitness
+
+            global_best = particles[p].copy()
+
+
+    for p in range(num_particles):
+
+        for i in range(len(workloads)):
+
+            r1 = random.random()
+            r2 = random.random()
+
+            velocities[p][i] = (
+                0.7 * velocities[p][i]
+                + 1.5 * r1 *
+                (
+                    personal_best[p][i]
+                    - particles[p][i]
+                )
+                + 1.5 * r2 *
+                (
+                    global_best[i]
+                    - particles[p][i]
+                )
+            )
+
+            new_position = round(
+                particles[p][i]
+                + velocities[p][i]
+            )
+
+            new_position = max(
+                0,
+                min(
+                    num_servers - 1,
+                    new_position
+                )
+            )
+
+            particles[p][i] = new_position
+
+
+    loads = initial_loads.copy()
+
+    for i, server_index in enumerate(
+        global_best
+    ):
+        loads[server_index] += workloads[i]
+
+    fitness_history.append(
+        global_best_fitness
+    )
+
+    load_history.append(
+        loads.copy()
+    )
+
+    assignment_history.append(
+        global_best.copy()
+    )
+
+
+for _ in range(num_iterations):
+    run_pso_iteration()
+
+
+fig, (ax1, ax2) = plt.subplots(
+    1,
+    2,
+    figsize=(14, 5)
+)
+
+
+def update(frame):
+
+    ax1.clear()
+    ax2.clear()
+
+    loads = load_history[frame]
+
+    assignments = assignment_history[frame]
+
+    fitness = fitness_history[frame]
+
+    colors = []
+
+    for load in loads:
+
+        if load <= 60:
+            colors.append("green")
+
+        elif load <= 80:
+            colors.append("orange")
+
+        else:
+            colors.append("red")
+
+
+    bars = ax1.bar(
+        server_names,
+        loads,
+        color=colors
+    )
+
+    ax1.set_ylim(0, 120)
+
+    ax1.set_ylabel(
+        "CPU / Workload Utilization (%)"
+    )
+
+    ax1.set_title(
+        f"PSO Server Load Balancing\n"
+        f"Iteration: {frame + 1}"
+    )
+
+    ax1.axhline(
+        80,
+        color="red",
+        linestyle="--",
+        linewidth=2,
+        label="80% Overload Limit"
+    )
+
+    ax1.legend()
+
+    for bar, load in zip(
+        bars,
+        loads
+    ):
+
+        ax1.text(
+            bar.get_x()
+            + bar.get_width() / 2,
+            load + 2,
+            f"{load:.0f}%",
+            ha="center",
+            fontweight="bold"
+        )
+
+
+    for i, server_index in enumerate(
+        assignments
+    ):
+
+        ax1.text(
+            server_index,
+            loads[server_index] - 7,
+            f"W{i + 1}",
+            ha="center",
+            color="white",
+            fontweight="bold"
+        )
+
+
+    ax2.plot(
+        range(1, frame + 2),
+        fitness_history[:frame + 1],
+        color="purple",
+        linewidth=3
+    )
+
+    ax2.scatter(
+        frame + 1,
+        fitness,
+        color="red",
+        s=60
+    )
+
+    ax2.set_xlim(
+        1,
+        num_iterations
+    )
+
+    max_fitness = max(
+        fitness_history
+    )
+
+    ax2.set_ylim(
+        0,
+        max_fitness * 1.1
+    )
+
+    ax2.set_xlabel(
+        "PSO Iteration"
+    )
+
+    ax2.set_ylabel(
+        "Fitness"
+    )
+
+    ax2.set_title(
+        f"Fitness Optimization\n"
+        f"Current Fitness: {fitness:.2f}"
+    )
+
+    ax2.grid(
+        True,
+        alpha=0.3
+    )
+
+    plt.tight_layout()
+
+
+animation = FuncAnimation(
+    fig,
+    update,
+    frames=num_iterations,
+    interval=300,
+    repeat=False
+)
+
+plt.close(fig)
+
+display(
+    HTML(
+        animation.to_jshtml()
+    )
+)
+
+
+final_loads = load_history[-1]
+
+final_assignments = assignment_history[-1]
+
+print("\nFINAL WORKLOAD DISTRIBUTION")
+print("=" * 45)
+
+for i, server_index in enumerate(
+    final_assignments
+):
+
+    print(
+        f"Workload {i + 1:2d} "
+        f"({workloads[i]:2d}%)  ->  "
+        f"Server {server_index + 1}"
+    )
+
+
+print("\nFINAL SERVER LOADS")
+print("=" * 45)
+
+for server, load in zip(
+    server_names,
+    final_loads
+):
+
+    print(
+        f"{server}: {load:.2f}%"
+    )
+
+
+print("\nFINAL FITNESS")
+print("=" * 45)
+
+print(
+    f"{fitness_history[-1]:.4f}"
+)
