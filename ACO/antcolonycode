@@ -24,129 +24,170 @@ edges = [
 
 G.add_weighted_edges_from(edges)
 
+nodes = list(G.nodes())
+start = "A"
+
 alpha = 1.0
 beta = 2.0
 evaporation = 0.4
-Q = 100
-ants = 20
-iterations = 40
-source = "A"
-destination = "G"
+Q = 1.0
+num_ants = 30
+iterations = 60
 
 def edge_key(u, v):
     return frozenset((u, v))
 
-tau = {edge_key(u, v): 1.0 for u, v in G.edges()}
+def distance(u, v):
+    return G[u][v]["weight"]
 
-def route_cost(path):
+def tour_cost(tour):
     return sum(
-        G[u][v]["weight"]
-        for u, v in zip(path, path[1:])
-    )
+        distance(tour[i], tour[i + 1])
+        for i in range(len(tour) - 1)
+    ) + distance(tour[-1], tour[0])
 
-def choose_next(current, visited):
-    candidates = [
-        v for v in G.neighbors(current)
-        if v not in visited
-    ]
+def can_complete(path):
+    current = path[-1]
+    visited = set(path)
 
-    weights = []
+    if len(path) == len(nodes):
+        return G.has_edge(current, start)
 
-    for v in candidates:
-        t = tau[edge_key(current, v)]
-        d = G[current][v]["weight"]
-        eta = 1 / d
-        weights.append(t ** alpha * eta ** beta)
+    for nxt in G.neighbors(current):
+        if nxt not in visited:
+            if can_complete(path + [nxt]):
+                return True
+
+    return False
+
+def get_choices(current, path, tau):
+    candidates = []
+
+    for nxt in G.neighbors(current):
+        if nxt not in path and can_complete(path + [nxt]):
+            candidates.append(nxt)
 
     if not candidates:
         return [], [], []
 
+    weights = []
+
+    for nxt in candidates:
+        t = tau[edge_key(current, nxt)]
+        d = distance(current, nxt)
+        eta = 1.0 / d
+        weights.append((t ** alpha) * (eta ** beta))
+
     total = sum(weights)
-    probs = [w / total for w in weights]
+    probabilities = [w / total for w in weights]
 
-    return candidates, weights, probs
+    return candidates, weights, probabilities
 
-best_path = None
+tau = {
+    edge_key(u, v): 1.0
+    for u, v in G.edges()
+}
+
+best_tour = None
 best_cost = float("inf")
 history = []
 
-for _ in range(iterations):
-    routes = []
+for iteration in range(iterations):
+    completed_tours = []
 
-    for _ in range(ants):
-        path = [source]
-        visited = {source}
+    for ant in range(num_ants):
+        path = [start]
 
-        while path[-1] != destination:
-            candidates, weights, probs = choose_next(
-                path[-1], visited
+        while len(path) < len(nodes):
+            candidates, weights, probabilities = get_choices(
+                path[-1], path, tau
             )
 
             if not candidates:
                 break
 
             nxt = random.choices(
-                candidates, weights=probs, k=1
+                candidates, weights=probabilities, k=1
             )[0]
 
             path.append(nxt)
-            visited.add(nxt)
 
-        if path[-1] != destination:
+        if len(path) != len(nodes):
             continue
 
-        c = route_cost(path)
-        routes.append((path, c))
+        if not G.has_edge(path[-1], start):
+            continue
 
-        if c < best_cost:
-            best_path = path[:]
-            best_cost = c
+        cost = tour_cost(path)
+        completed_tours.append((path[:], cost))
 
-    for e in tau:
-        tau[e] *= (1 - evaporation)
+        if cost < best_cost:
+            best_cost = cost
+            best_tour = path[:]
 
-    for path, c in routes:
+    for edge in tau:
+        tau[edge] *= (1.0 - evaporation)
+
+    for path, cost in completed_tours:
+        deposit = Q / cost
+
         for u, v in zip(path, path[1:]):
-            tau[edge_key(u, v)] += Q / c
+            tau[edge_key(u, v)] += deposit
+
+        tau[edge_key(path[-1], path[0])] += deposit
 
     history.append(best_cost)
 
-if best_path is None:
-    raise RuntimeError("No valid route found.")
+if best_tour is None:
+    raise RuntimeError("No valid Hamiltonian tour was found.")
 
-demo_path = [source]
-visited = {source}
+print("ACO TRAVELLING SALESMAN PROBLEM")
+print("Best Tour:", " -> ".join(best_tour + [start]))
+print("Minimum Tour Cost:", best_cost)
+print("Vertices Visited:", len(best_tour))
+print("Return to Start:", best_tour[-1] + " -> " + start)
+
+demo_tau = tau.copy()
+demo_path = [start]
 steps = []
 
-while demo_path[-1] != destination:
+while len(demo_path) < len(nodes):
     current = demo_path[-1]
-    candidates, weights, probs = choose_next(
-        current, visited
+
+    candidates, weights, probabilities = get_choices(
+        current, demo_path, demo_tau
     )
 
-    if not candidates:
-        break
-
     chosen = random.choices(
-        candidates, weights=probs, k=1
+        candidates, weights=probabilities, k=1
     )[0]
 
     steps.append({
         "current": current,
+        "path": demo_path[:],
         "candidates": candidates[:],
         "weights": weights[:],
-        "probs": probs[:],
+        "probabilities": probabilities[:],
         "chosen": chosen,
-        "path": demo_path[:]
+        "tau": demo_tau.copy()
     })
 
     demo_path.append(chosen)
-    visited.add(chosen)
 
-fig = plt.figure(figsize=(16, 8))
+steps.append({
+    "current": demo_path[-1],
+    "path": demo_path[:],
+    "candidates": [start],
+    "weights": [demo_tau[edge_key(demo_path[-1], start)]],
+    "probabilities": [1.0],
+    "chosen": start,
+    "tau": demo_tau.copy()
+})
+
+fig = plt.figure(figsize=(16, 9))
 gs = fig.add_gridspec(
     2, 2, height_ratios=[3, 1.2],
-    width_ratios=[1.1, 1]
+    width_ratios=[1.05, 1]
 )
 
 ax_net = fig.add_subplot(gs[0, 0])
@@ -160,155 +201,150 @@ def update(frame):
     ax_info.clear()
     ax_graph.clear()
 
-    if frame == 0:
-        current = source
-        candidates, weights, probs = choose_next(
-            current, {source}
-        )
-        chosen = None
-        path = [source]
+    data = steps[frame]
+    current = data["current"]
+    path = data["path"]
+    candidates = data["candidates"]
+    weights = data["weights"]
+    probabilities = data["probabilities"]
+    chosen = data["chosen"]
+    frame_tau = data["tau"]
+
+    if frame < len(nodes) - 1:
+        title = f"AI Ant at Vertex {current}: Choosing Next Vertex"
     else:
-        s = steps[frame - 1]
-        current = s["current"]
-        candidates = s["candidates"]
-        weights = s["weights"]
-        probs = s["probs"]
-        chosen = s["chosen"]
-        path = s["path"]
-
-    node_colors = []
-
-    for node in G.nodes():
-        if node == source:
-            node_colors.append("limegreen")
-        elif node == destination:
-            node_colors.append("tomato")
-        elif node == current:
-            node_colors.append("orange")
-        elif node == chosen:
-            node_colors.append("violet")
-        else:
-            node_colors.append("skyblue")
+        title = f"Returning to Start: {current} -> {start}"
 
     nx.draw_networkx_edges(
-        G, pos, ax=ax_net,
-        edge_color="lightgray", width=2
+        G, pos, ax=ax_net, edge_color="lightgray", width=2
+    )
+    nx.draw_networkx_edge_labels(
+        G, pos, edge_labels=edge_labels, ax=ax_net
     )
 
-    nx.draw_networkx_edge_labels(
-        G, pos, edge_labels=edge_labels,
-        ax=ax_net, font_size=10
-    )
+    visited = set(path)
+    colors = []
+
+    for node in nodes:
+        if node == current:
+            colors.append("orange")
+        elif node == start:
+            colors.append("limegreen")
+        elif node == chosen:
+            colors.append("violet")
+        elif node in visited:
+            colors.append("lightgreen")
+        else:
+            colors.append("skyblue")
 
     nx.draw_networkx_nodes(
-        G, pos, ax=ax_net,
-        node_color=node_colors,
-        node_size=1100, edgecolors="white",
-        linewidths=2
+        G, pos, ax=ax_net, node_color=colors,
+        node_size=1100, edgecolors="white", linewidths=2
     )
-
     nx.draw_networkx_labels(
-        G, pos, ax=ax_net,
-        font_weight="bold", font_size=12
+        G, pos, ax=ax_net, font_size=12, font_weight="bold"
     )
 
-    travelled = list(zip(path[:-1], path[1:]))
+    traversed = list(zip(path[:-1], path[1:]))
 
-    if travelled:
+    if traversed:
         nx.draw_networkx_edges(
-            G, pos, edgelist=travelled,
-            ax=ax_net, edge_color="green", width=4
+            G, pos, edgelist=traversed,
+            edge_color="green", width=4, ax=ax_net
+        )
+
+    if frame == len(nodes) - 1:
+        nx.draw_networkx_edges(
+            G, pos, edgelist=[(current, start)],
+            edge_color="red", width=4, ax=ax_net
         )
 
     x, y = pos[current]
     ax_net.scatter(
-        [x], [y], s=1800,
-        facecolors="none", edgecolors="orange",
-        linewidths=3, zorder=5
+        [x], [y], s=1800, facecolors="none",
+        edgecolors="orange", linewidths=3, zorder=5
     )
 
-    ax_net.set_title(
-        f"Network Layer: AI Ant at Router {current}",
-        fontsize=14, fontweight="bold"
-    )
+    ax_net.set_title(title, fontsize=14, fontweight="bold")
     ax_net.axis("off")
 
     ax_info.axis("off")
     ax_info.set_title(
-        f"AI Decision at Router {current}",
+        "ACO Next-Vertex Decision",
         fontsize=14, fontweight="bold"
     )
 
+    current_cost = sum(
+        distance(u, v) for u, v in zip(path, path[1:])
+    )
+
     lines = [
-        f"Source: {source}    Destination: {destination}",
-        f"Current path: {' -> '.join(path)}",
-        f"Cost so far: {route_cost(path)}",
+        f"Current vertex: {current}",
+        f"Start vertex: {start}",
+        f"Path so far: {' -> '.join(path)}",
+        f"Cost so far: {current_cost}",
         "",
         "PROBABILITY FORMULA",
-        "P = (tau^alpha * eta^beta) / sum(weights)",
+        "P = tau^alpha * eta^beta / sum(weights)",
         "eta = 1 / distance",
         "",
-        "NEXT-HOP EVALUATION",
-        "Node  Tau     Dist   Eta     Weight   Probability"
+        "AVAILABLE NEXT VERTICES",
+        "Node  Tau       Dist   Eta      Weight   Probability"
     ]
 
-    for v, w, p in zip(candidates, weights, probs):
-        t = tau[edge_key(current, v)]
-        d = G[current][v]["weight"]
-        eta = 1 / d
-
-        mark = " <-- CHOSEN" if v == chosen else ""
+    for nxt, weight, probability in zip(
+        candidates, weights, probabilities
+    ):
+        t = frame_tau[edge_key(current, nxt)]
+        d = distance(current, nxt)
+        eta = 1.0 / d
+        marker = " <-- CHOSEN" if nxt == chosen else ""
 
         lines.append(
-            f"{v:<5} {t:<7.2f} {d:<6} "
-            f"{eta:<7.3f} {w:<8.3f} "
-            f"{p:>6.1%}{mark}"
+            f"{nxt:<5} {t:<9.4f} {d:<6} "
+            f"{eta:<8.3f} {weight:<8.4f} "
+            f"{probability:>6.1%}{marker}"
         )
 
     lines.extend([
         "",
         f"Alpha = {alpha} | Beta = {beta}",
         "",
-        "Orange = Current router",
-        "Violet = Chosen next router",
-        "Green = Traversed route",
+        "Orange = Current vertex",
+        "Violet = Chosen next vertex",
+        "Green = Visited vertices",
+        "Red = Return to starting vertex",
         "",
-        "The ant chooses a neighbor",
-        "using pheromone and link cost."
+        "Every vertex is visited once.",
+        "The final edge returns to A."
     ])
 
     ax_info.text(
         0.02, 0.96, "\n".join(lines),
-        va="top", family="monospace", fontsize=9.5,
+        va="top", family="monospace", fontsize=9,
         transform=ax_info.transAxes,
         bbox=dict(
             boxstyle="round,pad=0.7",
-            facecolor="#f0f7ff",
-            edgecolor="steelblue"
+            facecolor="#f0f7ff", edgecolor="steelblue"
         )
     )
 
     ax_graph.plot(
-        range(1, len(history) + 1),
-        history, color="blue", marker="o",
-        markersize=3
+        range(1, len(history) + 1), history,
+        color="blue", marker="o", markersize=3
     )
-
-    ax_graph.set_title(
-        "ACO Learning: Best Route Cost Across Iterations"
-    )
+    ax_graph.set_title("ACO Convergence: Best Complete Tour Cost")
     ax_graph.set_xlabel("Iteration")
-    ax_graph.set_ylabel("Best route cost")
+    ax_graph.set_ylabel("Tour Cost")
     ax_graph.grid(True, alpha=0.3)
 
     ax_graph.text(
         0.99, 0.95,
-        f"Best route: {' -> '.join(best_path)} | Cost: {best_cost}",
-        ha="right", va="top",
-        transform=ax_graph.transAxes,
+        f"Best tour: {' -> '.join(best_tour + [start])}"
+        f" | Cost: {best_cost}",
+        ha="right", va="top", transform=ax_graph.transAxes,
         bbox=dict(
-            boxstyle="round",
-            facecolor="#dcfce7",
+            boxstyle="round", facecolor="#dcfce7",
             edgecolor="green"
         )
     )
@@ -317,7 +353,7 @@ def update(frame):
 
 ani = FuncAnimation(
     fig, update,
-    frames=len(steps) + 1,
+    frames=len(steps),
     interval=2200,
     repeat=True
 )
@@ -325,5 +361,6 @@ ani = FuncAnimation(
 plt.close(fig)
 display(HTML(ani.to_jshtml()))
 
-print("Best route found:", " -> ".join(best_path))
-print("Best route cost:", best_cost)
+print("\nFinal Complete Tour:")
+print(" -> ".join(best_tour + [start]))
+print("Total Distance:", best_cost)
