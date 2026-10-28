@@ -1,0 +1,329 @@
+
+import random
+import networkx as nx
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from IPython.display import HTML, display
+
+random.seed(7)
+
+G = nx.Graph()
+
+pos = {
+    "A": (0, 2), "B": (1.5, 3.5), "C": (1.5, 0.5),
+    "D": (3, 2), "E": (4.5, 3.5), "F": (4.5, 0.5),
+    "G": (6, 2)
+}
+
+edges = [
+    ("A", "B", 2), ("A", "C", 4), ("B", "D", 2),
+    ("C", "D", 1), ("B", "E", 3), ("D", "E", 2),
+    ("D", "F", 3), ("C", "F", 2), ("E", "G", 2),
+    ("F", "G", 3)
+]
+
+G.add_weighted_edges_from(edges)
+
+alpha = 1.0
+beta = 2.0
+evaporation = 0.4
+Q = 100
+ants = 20
+iterations = 40
+source = "A"
+destination = "G"
+
+def edge_key(u, v):
+    return frozenset((u, v))
+
+tau = {edge_key(u, v): 1.0 for u, v in G.edges()}
+
+def route_cost(path):
+    return sum(
+        G[u][v]["weight"]
+        for u, v in zip(path, path[1:])
+    )
+
+def choose_next(current, visited):
+    candidates = [
+        v for v in G.neighbors(current)
+        if v not in visited
+    ]
+
+    weights = []
+
+    for v in candidates:
+        t = tau[edge_key(current, v)]
+        d = G[current][v]["weight"]
+        eta = 1 / d
+        weights.append(t ** alpha * eta ** beta)
+
+    if not candidates:
+        return [], [], []
+
+    total = sum(weights)
+    probs = [w / total for w in weights]
+
+    return candidates, weights, probs
+
+best_path = None
+best_cost = float("inf")
+history = []
+
+for _ in range(iterations):
+    routes = []
+
+    for _ in range(ants):
+        path = [source]
+        visited = {source}
+
+        while path[-1] != destination:
+            candidates, weights, probs = choose_next(
+                path[-1], visited
+            )
+
+            if not candidates:
+                break
+
+            nxt = random.choices(
+                candidates, weights=probs, k=1
+            )[0]
+
+            path.append(nxt)
+            visited.add(nxt)
+
+        if path[-1] != destination:
+            continue
+
+        c = route_cost(path)
+        routes.append((path, c))
+
+        if c < best_cost:
+            best_path = path[:]
+            best_cost = c
+
+    for e in tau:
+        tau[e] *= (1 - evaporation)
+
+    for path, c in routes:
+        for u, v in zip(path, path[1:]):
+            tau[edge_key(u, v)] += Q / c
+
+    history.append(best_cost)
+
+if best_path is None:
+    raise RuntimeError("No valid route found.")
+
+demo_path = [source]
+visited = {source}
+steps = []
+
+while demo_path[-1] != destination:
+    current = demo_path[-1]
+    candidates, weights, probs = choose_next(
+        current, visited
+    )
+
+    if not candidates:
+        break
+
+    chosen = random.choices(
+        candidates, weights=probs, k=1
+    )[0]
+
+    steps.append({
+        "current": current,
+        "candidates": candidates[:],
+        "weights": weights[:],
+        "probs": probs[:],
+        "chosen": chosen,
+        "path": demo_path[:]
+    })
+
+    demo_path.append(chosen)
+    visited.add(chosen)
+
+fig = plt.figure(figsize=(16, 8))
+gs = fig.add_gridspec(
+    2, 2, height_ratios=[3, 1.2],
+    width_ratios=[1.1, 1]
+)
+
+ax_net = fig.add_subplot(gs[0, 0])
+ax_info = fig.add_subplot(gs[0, 1])
+ax_graph = fig.add_subplot(gs[1, :])
+
+edge_labels = nx.get_edge_attributes(G, "weight")
+
+def update(frame):
+    ax_net.clear()
+    ax_info.clear()
+    ax_graph.clear()
+
+    if frame == 0:
+        current = source
+        candidates, weights, probs = choose_next(
+            current, {source}
+        )
+        chosen = None
+        path = [source]
+    else:
+        s = steps[frame - 1]
+        current = s["current"]
+        candidates = s["candidates"]
+        weights = s["weights"]
+        probs = s["probs"]
+        chosen = s["chosen"]
+        path = s["path"]
+
+    node_colors = []
+
+    for node in G.nodes():
+        if node == source:
+            node_colors.append("limegreen")
+        elif node == destination:
+            node_colors.append("tomato")
+        elif node == current:
+            node_colors.append("orange")
+        elif node == chosen:
+            node_colors.append("violet")
+        else:
+            node_colors.append("skyblue")
+
+    nx.draw_networkx_edges(
+        G, pos, ax=ax_net,
+        edge_color="lightgray", width=2
+    )
+
+    nx.draw_networkx_edge_labels(
+        G, pos, edge_labels=edge_labels,
+        ax=ax_net, font_size=10
+    )
+
+    nx.draw_networkx_nodes(
+        G, pos, ax=ax_net,
+        node_color=node_colors,
+        node_size=1100, edgecolors="white",
+        linewidths=2
+    )
+
+    nx.draw_networkx_labels(
+        G, pos, ax=ax_net,
+        font_weight="bold", font_size=12
+    )
+
+    travelled = list(zip(path[:-1], path[1:]))
+
+    if travelled:
+        nx.draw_networkx_edges(
+            G, pos, edgelist=travelled,
+            ax=ax_net, edge_color="green", width=4
+        )
+
+    x, y = pos[current]
+    ax_net.scatter(
+        [x], [y], s=1800,
+        facecolors="none", edgecolors="orange",
+        linewidths=3, zorder=5
+    )
+
+    ax_net.set_title(
+        f"Network Layer: AI Ant at Router {current}",
+        fontsize=14, fontweight="bold"
+    )
+    ax_net.axis("off")
+
+    ax_info.axis("off")
+    ax_info.set_title(
+        f"AI Decision at Router {current}",
+        fontsize=14, fontweight="bold"
+    )
+
+    lines = [
+        f"Source: {source}    Destination: {destination}",
+        f"Current path: {' -> '.join(path)}",
+        f"Cost so far: {route_cost(path)}",
+        "",
+        "PROBABILITY FORMULA",
+        "P = (tau^alpha * eta^beta) / sum(weights)",
+        "eta = 1 / distance",
+        "",
+        "NEXT-HOP EVALUATION",
+        "Node  Tau     Dist   Eta     Weight   Probability"
+    ]
+
+    for v, w, p in zip(candidates, weights, probs):
+        t = tau[edge_key(current, v)]
+        d = G[current][v]["weight"]
+        eta = 1 / d
+
+        mark = " <-- CHOSEN" if v == chosen else ""
+
+        lines.append(
+            f"{v:<5} {t:<7.2f} {d:<6} "
+            f"{eta:<7.3f} {w:<8.3f} "
+            f"{p:>6.1%}{mark}"
+        )
+
+    lines.extend([
+        "",
+        f"Alpha = {alpha} | Beta = {beta}",
+        "",
+        "Orange = Current router",
+        "Violet = Chosen next router",
+        "Green = Traversed route",
+        "",
+        "The ant chooses a neighbor",
+        "using pheromone and link cost."
+    ])
+
+    ax_info.text(
+        0.02, 0.96, "\n".join(lines),
+        va="top", family="monospace", fontsize=9.5,
+        transform=ax_info.transAxes,
+        bbox=dict(
+            boxstyle="round,pad=0.7",
+            facecolor="#f0f7ff",
+            edgecolor="steelblue"
+        )
+    )
+
+    ax_graph.plot(
+        range(1, len(history) + 1),
+        history, color="blue", marker="o",
+        markersize=3
+    )
+
+    ax_graph.set_title(
+        "ACO Learning: Best Route Cost Across Iterations"
+    )
+    ax_graph.set_xlabel("Iteration")
+    ax_graph.set_ylabel("Best route cost")
+    ax_graph.grid(True, alpha=0.3)
+
+    ax_graph.text(
+        0.99, 0.95,
+        f"Best route: {' -> '.join(best_path)} | Cost: {best_cost}",
+        ha="right", va="top",
+        transform=ax_graph.transAxes,
+        bbox=dict(
+            boxstyle="round",
+            facecolor="#dcfce7",
+            edgecolor="green"
+        )
+    )
+
+    fig.tight_layout()
+
+ani = FuncAnimation(
+    fig, update,
+    frames=len(steps) + 1,
+    interval=2200,
+    repeat=True
+)
+
+plt.close(fig)
+display(HTML(ani.to_jshtml()))
+
+print("Best route found:", " -> ".join(best_path))
+print("Best route cost:", best_cost)
