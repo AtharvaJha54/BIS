@@ -1,0 +1,82 @@
+INITIAL BEST SOLUTION
+=======================================================
+Best Nest: J2 -> J1 -> J3 -> J1 -> J3 -> J2 -> J2 -> J3 -> J1
+Initial Makespan: 10
+
+CUCKOO SEARCH STARTED
+=======================================================
+
+LEVY FLIGHT 1
+-------------------------------------------------------
+Original Nest:
+J2 -> J1 -> J3 -> J1 -> J3 -> J2 -> J2 -> J3 -> J1
+
+Levy Flight Swaps:
+Position 3 <-> Position 4
+Position 2 <-> Position 8
+
+New Nest:
+J2 -> J1 -> J1 -> J3 -> J1 -> J2 -> J2 -> J3 -> J3
+
+Old Makespan: 13
+New Makespan: 17
+Decision: REJECTED
+
+LEVY FLIGHT 2
+-------------------------------------------------------
+Original Nest:
+J3 -> J2 -> J1 -> J2 -> J3 -> J1 -> J3 -> J2 -> J1
+
+Levy Flight Swaps:
+Position 6 <-> Position 3
+Position 4 <-> Position 1
+
+New Nest:
+J3 -> J3 -> J1 -> J3 -> J2 -> J1 -> J2 -> J2 -> J1
+
+Old Makespan: 10
+New Makespan: 17
+Decision: REJECTED
+
+LEVY FLIGHT 3
+-------------------------------------------------------
+Original Nest:
+J3 -> J2 -> J1 -> J2 -> J3 -> J1 -> J3 -> J2 -> J1
+
+Levy Flight Swaps:
+Position 2 <-> Position 4
+
+New Nest:
+J3 -> J2 -> J3 -> J2 -> J1 -> J1 -> J3 -> J2 -> J1
+
+Old Makespan: 10
+New Makespan: 14
+Decision: REJECTED
+
+
+FINAL OPTIMIZED SCHEDULE
+=======================================================
+
+Best Job Sequence:
+J2 -> J1 -> J3 -> J1 -> J3 -> J2 -> J2 -> J3 -> J1
+
+FINAL SCHEDULING CALCULATIONS
+
+Job | Op | Machine | Duration | Start | Finish
+----------------------------------------------------
+J2  | 1  | M2      | 2       | 0     | 2
+J1  | 1  | M1      | 3       | 0     | 3
+J3  | 1  | M3      | 4       | 0     | 4
+J1  | 2  | M2      | 2       | 3     | 5
+J3  | 2  | M1      | 3       | 4     | 7
+J2  | 2  | M3      | 4       | 4     | 8
+J2  | 3  | M1      | 1       | 8     | 9
+J3  | 3  | M2      | 2       | 7     | 9
+J1  | 3  | M3      | 2       | 8     | 10
+
+Makespan = 10
+
+Minimum Makespan: 10
+Total Global Best Improvements: 0
+Total Accepted Solutions: 373
+Total Iterations: 100
