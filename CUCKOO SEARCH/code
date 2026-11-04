@@ -1,0 +1,217 @@
+
+import random
+
+random.seed(10)
+
+# Job operations: (Machine, Processing Time)
+jobs = [
+    [(0, 3), (1, 2), (2, 2)],
+    [(1, 2), (2, 4), (0, 1)],
+    [(2, 4), (0, 3), (1, 2)]
+]
+
+NUM_JOBS = len(jobs)
+NUM_MACHINES = 3
+
+NESTS = 10
+PA = 0.25
+MAX_ITER = 100
+
+
+# Generate a valid job sequence
+def generate_solution():
+    solution = []
+
+    for j in range(NUM_JOBS):
+        solution.extend([j] * len(jobs[j]))
+
+    random.shuffle(solution)
+    return solution
+
+
+# Calculate makespan
+def calculate_fitness(solution, show=False):
+
+    job_time = [0] * NUM_JOBS
+    machine_time = [0] * NUM_MACHINES
+    next_op = [0] * NUM_JOBS
+
+    details = []
+
+    for job in solution:
+
+        op = next_op[job]
+        machine, duration = jobs[job][op]
+
+        start = max(job_time[job], machine_time[machine])
+        finish = start + duration
+
+        details.append(
+            (job + 1, op + 1, machine + 1,
+             duration, start, finish)
+        )
+
+        job_time[job] = finish
+        machine_time[machine] = finish
+        next_op[job] += 1
+
+    makespan = max(job_time)
+
+    if show:
+        print("\nJob | Op | Machine | Duration | Start | Finish")
+        print("-" * 52)
+
+        for j, op, m, d, s, f in details:
+            print(
+                f"J{j}  | {op}  | M{m}      |"
+                f" {d}       | {s}     | {f}"
+            )
+
+        print("\nMakespan =", makespan)
+
+    return makespan
+
+
+# Display job sequence
+def show_sequence(solution):
+    return " -> ".join("J" + str(x + 1) for x in solution)
+
+
+# Levy Flight using random swaps
+def levy_flight(solution):
+
+    new_solution = solution.copy()
+    step = random.randint(1, 3)
+    swaps = []
+
+    for _ in range(step):
+
+        i, j = random.sample(range(len(solution)), 2)
+
+        while new_solution[i] == new_solution[j]:
+            i, j = random.sample(range(len(solution)), 2)
+
+        swaps.append((i, j))
+
+        new_solution[i], new_solution[j] = (
+            new_solution[j], new_solution[i]
+        )
+
+    return new_solution, swaps
+
+
+# STEP 1: Initialize nests
+nests = [generate_solution() for _ in range(NESTS)]
+
+best_nest = min(nests, key=calculate_fitness)
+best_fitness = calculate_fitness(best_nest)
+
+print("INITIAL BEST SOLUTION")
+print("=" * 55)
+print("Best Nest:", show_sequence(best_nest))
+print("Initial Makespan:", best_fitness)
+
+
+# STEP 2: Cuckoo Search
+print("\nCUCKOO SEARCH STARTED")
+print("=" * 55)
+
+improvement = 0
+levy_count = 0
+accepted_count = 0
+
+for iteration in range(MAX_ITER):
+
+    for i in range(NESTS):
+
+        original_nest = nests[i].copy()
+
+        # Generate new solution using Levy Flight
+        new_solution, swaps = levy_flight(original_nest)
+        new_fitness = calculate_fitness(new_solution)
+
+        # Select a random nest
+        j = random.randrange(NESTS)
+        old_fitness = calculate_fitness(nests[j])
+
+        # Acceptance decision
+        if new_fitness <= old_fitness:
+            nests[j] = new_solution.copy()
+            decision = "ACCEPTED"
+            accepted_count += 1
+        else:
+            decision = "REJECTED"
+
+        # Display only first 3 Levy Flight demonstrations
+        if iteration < 3 and i == 0:
+
+            levy_count += 1
+
+            print("\nLEVY FLIGHT", levy_count)
+            print("-" * 55)
+
+            print("Original Nest:")
+            print(show_sequence(original_nest))
+
+            print("\nLevy Flight Swaps:")
+
+            for a, b in swaps:
+                print("Position", a, "<-> Position", b)
+
+            print("\nNew Nest:")
+            print(show_sequence(new_solution))
+
+            print("\nOld Makespan:", old_fitness)
+            print("New Makespan:", new_fitness)
+            print("Decision:", decision)
+
+        # Update global best only for a strict improvement
+        if new_fitness < best_fitness:
+
+            improvement += 1
+            best_nest = new_solution.copy()
+            best_fitness = new_fitness
+
+            print("\n*** NEW GLOBAL BEST FOUND ***")
+            print("Iteration:", iteration + 1)
+            print("New Best Sequence:", show_sequence(best_nest))
+            print("New Minimum Makespan:", best_fitness)
+
+    # STEP 3: Rank nests
+    nests.sort(key=calculate_fitness)
+
+    # STEP 4: Abandon worst nests
+    abandon_count = max(1, int(PA * NESTS))
+
+    for k in range(NESTS - abandon_count, NESTS):
+
+        nests[k] = generate_solution()
+        replacement_fitness = calculate_fitness(nests[k])
+
+        if replacement_fitness < best_fitness:
+
+            improvement += 1
+            best_nest = nests[k].copy()
+            best_fitness = replacement_fitness
+
+            print("\n*** NEW GLOBAL BEST FROM REPLACEMENT ***")
+            print("Iteration:", iteration + 1)
+            print("New Sequence:", show_sequence(best_nest))
+            print("New Makespan:", best_fitness)
+
+
+# STEP 5: Display final optimized schedule
+print("\n\nFINAL OPTIMIZED SCHEDULE")
+print("=" * 55)
+
+print("\nBest Job Sequence:")
+print(show_sequence(best_nest))
+
+print("\nFINAL SCHEDULING CALCULATIONS")
+
+minimum_makespan = calculate_fitness(best_nest, True)
+
+print("\nMinimum Makespan:", minimum_makespan)
+print("Total Global Best Improvements:", improvement)
+print("Total Accepted Solutions:", accepted_count)
+print("Total Iterations:", MAX_ITER)
