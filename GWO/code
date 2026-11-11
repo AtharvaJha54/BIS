@@ -1,0 +1,64 @@
+
+import random
+import matplotlib.pyplot as plt
+
+features = ["Study", "Attendance", "Marks", "Sleep", "Games", "Travel"]
+
+actual = [1, 1, 1, 1, 0, 0]
+
+def fitness(wolf):
+    correct = sum(wolf[i] == actual[i] for i in range(6))
+    return 1 - correct / 6 + 0.01 * sum(wolf) / 6
+
+wolves = [[random.randint(0, 1) for _ in range(6)] for _ in range(5)]
+
+best_values = []
+
+for iteration in range(30):
+
+    wolves.sort(key=fitness)
+
+    alpha = wolves[0][:]
+    beta = wolves[1][:]
+    delta = wolves[2][:]
+
+    a = 2 - 2 * iteration / 30
+
+    for wolf in wolves:
+        for j in range(6):
+            r = random.random()
+
+            if r < a / 2:
+                wolf[j] = alpha[j]
+            elif r < a:
+                wolf[j] = beta[j]
+            else:
+                wolf[j] = delta[j]
+
+            if random.random() < 0.1:
+                wolf[j] = 1 - wolf[j]
+
+    best_values.append(fitness(alpha))
+
+    if iteration % 5 == 0:
+        print("Iteration:", iteration + 1,
+              "Best Wolf:", alpha,
+              "Fitness:", round(fitness(alpha), 3))
+
+wolves.sort(key=fitness)
+best = wolves[0]
+
+print("\nBEST FEATURE COMBINATION")
+for i in range(6):
+    if best[i] == 1:
+        print(features[i])
+
+print("\nSelected Features:", sum(best))
+print("Best Fitness:", round(fitness(best), 3))
+
+plt.plot(best_values, marker="o")
+plt.xlabel("Iterations")
+plt.ylabel("Fitness")
+plt.title("GWO Feature Selection")
+plt.grid()
+plt.show()
