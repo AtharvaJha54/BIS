@@ -1,0 +1,87 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
+
+# Cell States: 0 = Empty/Ash, 1 = Healthy Tree, 2 = Burning
+EMPTY, TREE, BURNING = 0, 1, 2
+
+def init_forest(size=100, tree_density=0.72, seed=42):
+    rng = np.random.default_rng(seed)
+    grid = np.where(rng.random((size, size)) < tree_density, TREE, EMPTY)
+    # Ignite a vertical fire line on the left side
+    grid[35:65, 2:5] = BURNING
+    return grid
+
+def step_forest(grid, p_ignite=0.55, rng=None):
+    """Synchronous parallel state transition across all cells (Moore Neighborhood)."""
+    if rng is None:
+        rng = np.random.default_rng()
+        
+    padded = np.pad(grid, pad_width=1, mode='constant', constant_values=EMPTY)
+    
+    # Vectorized count of burning neighbors across all 8 surrounding cells
+    burning_neighbors = (
+        (padded[:-2, :-2] == BURNING).astype(int) +
+        (padded[:-2, 1:-1] == BURNING).astype(int) +
+        (padded[:-2, 2:] == BURNING).astype(int) +
+        (padded[1:-1, :-2] == BURNING).astype(int) +
+        (padded[1:-1, 2:] == BURNING).astype(int) +
+        (padded[2:, :-2] == BURNING).astype(int) +
+        (padded[2:, 1:-1] == BURNING).astype(int) +
+        (padded[2:, 2:] == BURNING).astype(int)
+    )
+    
+    new_grid = grid.copy()
+    new_grid[grid == BURNING] = EMPTY  # Burning trees become ash
+    
+    catch_fire = (grid == TREE) & (burning_neighbors > 0) & (rng.random(grid.shape) < p_ignite)
+    new_grid[catch_fire] = BURNING
+    return new_grid
+
+# --- Execute Simulation ---
+rng = np.random.default_rng(42)
+forest = init_forest(size=100, tree_density=0.72, seed=42)
+initial_trees = np.sum(forest == TREE) + np.sum(forest == BURNING)
+
+cmap = ListedColormap(['#2b2b2b', '#2e8b57', '#ff4500'])  # Ash, Tree, Fire
+fig, axes = plt.subplots(1, 4, figsize=(14, 4.8))
+capture_steps = [0, 15, 35, 60]
+plot_idx = 0
+
+print("=" * 55)
+print(" PARALLEL CELLULAR ALGORITHM: FOREST FIRE SIMULATION")
+print("=" * 55)
+print(f"{'Step':<8} | {'Healthy Trees':<15} | {'Burning Cells':<15} | {'Burnt %':<10}")
+print("-" * 55)
+
+for t in range(max(capture_steps) + 1):
+    if t in capture_steps:
+        trees_left = np.sum(forest == TREE)
+        burning_now = np.sum(forest == BURNING)
+        burnt_pct = ((initial_trees - trees_left - burning_now) / initial_trees) * 100
+        
+        print(f"{t:<8} | {trees_left:<15} | {burning_now:<15} | {burnt_pct:>6.1f}%")
+        
+        axes[plot_idx].imshow(forest, cmap=cmap, vmin=0, vmax=2)
+        axes[plot_idx].set_title(f"Step {t}\nTrees: {trees_left} | Fire: {burning_now}", fontsize=10)
+        axes[plot_idx].axis('off')
+        plot_idx += 1
+        
+    forest = step_forest(forest, p_ignite=0.55, rng=rng)
+
+final_trees = np.sum(forest == TREE)
+total_burnt_pct = ((initial_trees - final_trees) / initial_trees) * 100
+print("=" * 55)
+print(f"SIMULATION COMPLETE: {total_burnt_pct:.1f}% of forest burnt.\n")
+
+# Add title and status text box directly on the output window
+fig.suptitle("Parallel Cellular Algorithm: Forest Fire Spread Simulation", fontsize=13, fontweight='bold', y=0.97)
+status_text = (
+    f"Grid: 100x100 (Moore 8-Neighborhood)  |  Ignition Prob: 0.55  |  "
+    f"Initial Trees: {initial_trees}  |  Final Trees: {final_trees} ({total_burnt_pct:.1f}% Burnt)"
+)
+fig.text(0.5, 0.03, status_text, ha='center', fontsize=10,
+         bbox=dict(boxstyle='round,pad=0.4', facecolor='#f0f4f8', edgecolor='#888888'))
+
+plt.subplots_adjust(top=0.82, bottom=0.14, wspace=0.12)
+plt.show()
