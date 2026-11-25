@@ -1,0 +1,162 @@
+import numpy as np
+import random
+import matplotlib.pyplot as plt
+
+OPS = {
+    '+': lambda a, b: a + b,
+    '-': lambda a, b: a - b,
+    '*': lambda a, b: a * b,
+    '/': lambda a, b: np.where(np.abs(b) > 0.1, a / b, 1.0),
+    'sin': lambda a, b: np.sin(a),
+}
+TERMINALS = ['x', '0.8', '1.0', '2.0']
+
+class PathGene:
+    def __init__(self, head_len=5):
+        self.head_len = head_len
+        self.tail_len = head_len * (2 - 1) + 1
+        self.gene = (
+            [random.choice(list(OPS.keys()) + TERMINALS) for _ in range(head_len)] +
+            [random.choice(TERMINALS) for _ in range(self.tail_len)]
+        )
+
+    def decode_nodes(self):
+        nodes = []
+        queue = [0]
+        next_idx = 1
+        while queue:
+            curr = queue.pop(0)
+            sym = self.gene[curr]
+            if sym in OPS:
+                l, r = next_idx, next_idx + 1
+                next_idx += 2
+                nodes.append((curr, sym, l, r))
+                queue.extend([l, r])
+            else:
+                nodes.append((curr, sym, -1, -1))
+        return nodes
+
+    def eval_y(self, x_vals):
+        nodes = self.decode_nodes()
+        vals = {}
+        for idx, sym, l, r in reversed(nodes):
+            if sym == 'x':
+                vals[idx] = x_vals
+            elif sym in TERMINALS:
+                vals[idx] = np.full_like(x_vals, float(sym))
+            else:
+                vals[idx] = OPS[sym](vals[l], vals[r])
+        return vals[0]
+
+    def to_expression(self):
+        """Converts the active expression tree into a readable math formula."""
+        nodes = {idx: (sym, l, r) for idx, sym, l, r in self.decode_nodes()}
+        def build(idx):
+            sym, l, r = nodes[idx]
+            if sym not in OPS:
+                return sym
+            if sym == 'sin':
+                return f"sin({build(l)})"
+            return f"({build(l)} {sym} {build(r)})"
+        return build(0)
+
+# Arena Configuration
+START_Y, GOAL_X, GOAL_Y = 0.0, 10.0, 8.0
+OBSTACLES = [(3.5, 2.5, 1.3), (6.5, 5.5, 1.5), (7.5, 2.0, 1.1)]
+X_PATH = np.linspace(0, GOAL_X, 120)
+
+def evaluate_metrics(ind):
+    y_raw = ind.eval_y(X_PATH)
+    if np.any(np.isnan(y_raw)) or np.any(np.isinf(y_raw)) or np.max(np.abs(y_raw)) > 30:
+        return 0.0, 999.0, 999
+
+    y_path = y_raw - y_raw[0] + START_Y
+    goal_error = abs(y_path[-1] - GOAL_Y)
+
+    collisions = 0
+    for cx, cy, r in OBSTACLES:
+        dists = np.sqrt((X_PATH - cx)**2 + (y_path - cy)**2)
+        collisions += int(np.sum(dists < (r + 0.15)))
+
+    length_penalty = np.sum(np.abs(np.diff(y_path))) * 0.08
+    total_cost = (goal_error * 25.0) + (collisions * 20.0) + length_penalty
+    fitness = 1000.0 / (1.0 + total_cost)
+    return fitness, goal_error, collisions
+
+# --- Evolutionary Optimization ---
+random.seed(10)
+POP_SIZE = 180
+GENERATIONS = 200
+pop = [PathGene(head_len=5) for _ in range(POP_SIZE)]
+initial_best = pop[0]
+
+for gen in range(GENERATIONS):
+    scored = sorted([(evaluate_metrics(p)[0], p) for p in pop], key=lambda x: x[0], reverse=True)
+    if gen == 0:
+        initial_best = scored[0][1]
+    best_fit, best_ind = scored[0]
+
+    # Elitism: Keep top 10%
+    next_pop = [ind for _, ind in scored[:18]]
+    while len(next_pop) < POP_SIZE:
+        p1, p2 = random.choice(scored[:40])[1], random.choice(scored[:40])[1]
+        child = PathGene(p1.head_len)
+        cut = random.randint(1, len(p1.gene) - 1)
+        child.gene = p1.gene[:cut] + p2.gene[cut:]
+        for i in range(len(child.gene)):
+            if random.random() < 0.15:
+                child.gene[i] = random.choice(list(OPS.keys()) + TERMINALS) if i < child.head_len else random.choice(TERMINALS)
+        next_pop.append(child)
+    pop = next_pop
+
+final_fit, final_err, final_hits = evaluate_metrics(best_ind)
+expr_str = best_ind.to_expression()
+
+print("=" * 60)
+print(" GENE EXPRESSION PROGRAMMING: ROBOT PATH OPTIMIZATION")
+print("=" * 60)
+print(f"Best Chromosome    : {best_ind.gene}")
+print(f"Decoded Equation   : y(x) = {expr_str}")
+print(f"Final Fitness      : {final_fit:.2f} / 1000")
+print(f"Goal Distance Err  : {final_err:.4f} units")
+print(f"Obstacle Collisions: {final_hits} ({'SAFE PATH' if final_hits == 0 else 'COLLISION'})")
+print("=" * 60)
+
+# --- Plot Visual Simulation with On-Screen Metrics ---
+fig, ax = plt.subplots(figsize=(8, 5.5))
+
+for cx, cy, r in OBSTACLES:
+    circle = plt.Circle((cx, cy), r, color='crimson', alpha=0.65, label='Obstacle' if cx == 3.5 else "")
+    ax.add_patch(circle)
+
+y_init = initial_best.eval_y(X_PATH)
+y_init = y_init - y_init[0] + START_Y
+y_opt = best_ind.eval_y(X_PATH)
+y_opt = y_opt - y_opt[0] + START_Y
+
+ax.plot(X_PATH, y_init, '--', color='gray', linewidth=1.5, label='Gen 0 Path (Unoptimized)')
+ax.plot(X_PATH, y_opt, '-', color='dodgerblue', linewidth=2.8, label='GEP Evolved Optimal Path')
+ax.scatter([0, GOAL_X], [START_Y, GOAL_Y], color=['limegreen', 'gold'], s=140, zorder=5, edgecolors='black')
+ax.text(0.25, START_Y - 0.55, 'START (0,0)', fontweight='bold')
+ax.text(GOAL_X - 2.1, GOAL_Y + 0.45, 'GOAL (10,8)', fontweight='bold')
+
+# On-screen summary box
+info_box = (
+    f"GEP Optimization Results:\n"
+    f"• Fitness Score: {final_fit:.1f} / 1000\n"
+    f"• Goal Error: {final_err:.3f} units\n"
+    f"• Collisions: {final_hits} ({'Collision-Free' if final_hits == 0 else 'Hits'})\n"
+    f"• Evolved Formula: y = {expr_str}"
+)
+ax.text(0.03, 0.96, info_box, transform=ax.transAxes, fontsize=9,
+        verticalalignment='top', bbox=dict(boxstyle='round,pad=0.5', facecolor='#f8f9fa', edgecolor='#4a90e2', alpha=0.95))
+
+ax.set_xlim(-0.5, 11.2)
+ax.set_ylim(-1.8, 10.5)
+ax.set_title("Gene Expression Programming: 2D Robot Trajectory Optimization", fontweight='bold')
+ax.set_xlabel("X Position (meters)")
+ax.set_ylabel("Y Position (meters)")
+ax.legend(loc='lower right')
+ax.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
